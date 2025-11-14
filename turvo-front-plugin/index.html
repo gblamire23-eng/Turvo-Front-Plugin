@@ -34,7 +34,7 @@
 
     <!-- Search Bar -->
     <div class="flex space-x-2">
-      <input type="text" id="search-input" placeholder="Search Shipment ID or BOL..." class="flex-grow p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+      <input type="text" id="search-input" placeholder="Search Load # or BOL..." class="flex-grow p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
       <button id="search-button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md shadow-sm hover:bg-blue-700">
         Search
       </button>
@@ -46,7 +46,7 @@
       <div class="mb-4">
         <span class="text-sm text-gray-600">TMS Information for</span>
         <a id="record-id-link" href="#" target="_blank" class="ml-2 text-lg font-bold text-blue-600 hover:underline">
-          <span id="record-id-display">S123456</span> ↗
+          <span id="record-id-display">49873</span> ↗
         </a>
       </div>
 
@@ -126,7 +126,7 @@
     <!-- Initial/Loading/Error Messages -->
     <div id="message-container" class="pt-4">
       <div id="message-no-shipment" class="text-gray-600">
-        No Turvo ID or BOL# found in the subject. Try a manual search.
+        No Load # or BOL# found in the subject. Try a manual search.
       </div>
       <div id="message-loading" class="hidden text-gray-600 animate-pulse">
         Loading shipment data...
@@ -150,8 +150,11 @@
     let currentShipment = null; 
     let currentConversation = null;
     
+    // Updated Regex:
+    // loadNumber: Looks for 5 or more digits, NOT starting with "BOL"
+    // bolNumber: Looks for "BOL" followed by numbers/letters
     const regexPatterns = {
-      shipmentID: /(T-\d{5,})/i, 
+      loadNumber: /(?<!BOL[ -]?)\b(\d{5,})\b/i, 
       bolNumber: /(BOL[ -]?[A-Z0-9]{5,})/i,
     };
 
@@ -255,15 +258,23 @@
 
     function findId(text) {
       if (!text) return null;
-      let match = text.match(regexPatterns.shipmentID);
-      if (match) return { id: match[1], type: 'shipmentID' };
-      
-      match = text.match(regexPatterns.bolNumber);
+      // Try BOL first, as it's more specific
+      let match = text.match(regexPatterns.bolNumber);
       if (match) return { id: match[1], type: 'bolNumber' };
+      
+      // Try Load Number (5+ digits)
+      match = text.match(regexPatterns.loadNumber);
+      if (match) return { id: match[1], type: 'loadNumber' };
 
+      // Fallback for manual search
       if (text.trim().length > 0) {
-        const type = text.toUpperCase().startsWith('BOL') ? 'bolNumber' : 'shipmentID';
-        return { id: text.trim(), type: type };
+        const value = text.trim().toUpperCase();
+        if (value.startsWith('BOL')) {
+          return { id: value, type: 'bolNumber' };
+        }
+        if (/^\d{5,}$/.test(value)) {
+          return { id: value, type: 'loadNumber' };
+        }
       }
       return null;
     }
@@ -287,7 +298,10 @@
           el.errorText.textContent = `Shipment with ID "${id}" was not found in Turvo.`;
           return;
         }
-        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || `Server error: ${response.status}`);
+        }
 
         const data = await response.json();
         currentShipment = data; 
@@ -296,7 +310,7 @@
       } catch (error) {
         console.error('Error fetching shipment data:', error);
         showContentBlock(el.error);
-        el.errorText.textContent = 'Could not connect to the shipment server.';
+        el.errorText.textContent = error.message || 'Could not connect to the shipment server.';
       }
     }
 
@@ -488,7 +502,7 @@
       if (match) getShipmentData(match.id, match.type);
       else {
         showContentBlock(el.error);
-        el.errorText.textContent = 'Please enter a valid ID or BOL #.';
+        el.errorText.textContent = 'Please enter a valid Load # or BOL #.';
       }
     });
 
