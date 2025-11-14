@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logistics Plugin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+    .tab-link { @apply py-3 px-4 text-gray-600 border-b-2 border-transparent font-medium cursor-pointer; }
+    .tab-link:hover { @apply text-gray-800; }
+    .tab-link.active { @apply text-blue-600 border-blue-600; }
+    .tab-panel { @apply hidden; }
+    .tab-panel.active { @apply block; }
+    
+    .data-grid { @apply grid grid-cols-2 gap-y-3 gap-x-2; }
+    .data-key { @apply font-medium text-gray-500; }
+    .data-value { @apply text-gray-900 justify-self-end text-right break-words; }
+    
+    .data-grid-full { @apply grid grid-cols-1 gap-y-3; }
+    .data-key-full { @apply font-medium text-gray-500; }
+    .data-value-full { @apply text-gray-900; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+  <div id="plugin-container" class="space-y-4 p-4">
+    
+    <h1 class="text-lg font-bold text-gray-900">Logistics Plugin</h1>
+
+    <!-- Search Bar -->
+    <div class="flex space-x-2">
+      <input type="text" id="search-input" placeholder="Search Shipment ID or BOL..." class="flex-grow p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+      <button id="search-button" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md shadow-sm hover:bg-blue-700">
+        Search
+      </button>
+    </div>
+
+    <!-- Main Content Area -->
+    <div id="content-area" class="hidden">
+      <!-- Header for loaded data -->
+      <div class="mb-4">
+        <span class="text-sm text-gray-600">TMS Information for</span>
+        <a id="record-id-link" href="#" target="_blank" class="ml-2 text-lg font-bold text-blue-600 hover:underline">
+          <span id="record-id-display">S123456</span> ↗
+        </a>
+      </div>
+
+      <!-- Tab Navigation -->
+      <nav class="flex border-b border-gray-200">
+        <a href="#" class="tab-link active" data-tab="overview">Overview</a>
+        <a href="#" class="tab-link" data-tab="documents">Documents</a>
+        <a href="#" class="tab-link" data-tab="notes">Notes</a>
+      </nav>
+
+      <!-- Tab Panels -->
+      <div class="mt-4">
+        
+        <!-- Overview Panel -->
+        <div id="panel-overview" class="tab-panel active space-y-5">
+          <div class="data-grid">
+            <div class="data-key">Customer</div>
+            <div id="data-customer" class="data-value"></div>
+            <div class="data-key">BOL #</div>
+            <div id="data-bol" class="data-value"></div>
+          </div>
+          <div class="data-grid-full p-3 bg-white rounded-lg border">
+            <div class="data-key-full">Origin</div>
+            <div id="data-origin" class="data-value-full font-semibold"></div>
+            <div id="data-origin-details" class="data-value-full text-sm text-gray-600"></div>
+          </div>
+          <div class="data-grid-full p-3 bg-white rounded-lg border">
+            <div class="data-key-full">Destination</div>
+            <div id="data-destination" class="data-value-full font-semibold"></div>
+            <div id="data-destination-details" class="data-value-full text-sm text-gray-600"></div>
+          </div>
+          <div class="data-grid-full p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div class="data-key-full">Current Location</div>
+            <div id="data-current-location" class="data-value-full font-semibold"></div>
+            <div class="data-key-full mt-2">Predicted ETA</div>
+            <div id="data-predicted-eta" class="data-value-full font-semibold"></div>
+          </div>
+          <div class="space-y-2">
+            <label for="note-input" class="data-key-full">Post Update to Timeline</label>
+            <textarea id="note-input" rows="3" class="w-full p-2 border border-gray-300 rounded-md shadow-sm" placeholder="Type a note..."></textarea>
+            <button id="note-post-button" class="w-full px-4 py-2 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700">
+              Post Note
+            </button>
+            <div id="note-post-success" class="hidden text-green-600 font-medium">Note posted successfully!</div>
+          </div>
+        </div>
+
+        <!-- Documents Panel -->
+        <div id="panel-documents" class="tab-panel space-y-4">
+          <div>
+            <h3 class="font-semibold text-gray-800">From TMS</h3>
+            <div id="documents-list-tms" class="mt-2 space-y-2">
+              <!-- Documents from Turvo will be listed here -->
+            </div>
+          </div>
+          
+          <div>
+            <h3 class="font-semibold text-gray-800">From this conversation</h3>
+            <div id="documents-list-front" class="mt-2 space-y-2">
+              <!-- Attachments from Front will be listed here -->
+            </div>
+            <div id="attach-status" class="mt-2 text-sm"></div>
+          </div>
+        </div>
+
+        <!-- Notes Panel -->
+        <div id="panel-notes" class="tab-panel">
+          <h3 class="font-semibold text-gray-800">Shipment Status History</h3>
+          <div id="notes-timeline" class="mt-2 space-y-3">
+            <!-- Status history will be rendered here -->
+          </div>
+        </div>
+      </div>
+
+    </div>
+    
+    <!-- Initial/Loading/Error Messages -->
+    <div id="message-container" class="pt-4">
+      <div id="message-no-shipment" class="text-gray-600">
+        No Turvo ID or BOL# found in the subject. Try a manual search.
+      </div>
+      <div id="message-loading" class="hidden text-gray-600 animate-pulse">
+        Loading shipment data...
+      </div>
+      <div id="message-error" class="hidden p-3 bg-red-100 border border-red-300 rounded-lg">
+        <div class="font-semibold text-red-800">Error</div>
+        <div id="error-text" class="text-red-700"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://dl.frontapp.com/libs/plugin-sdk-1.0.1.js"></script>
+
+  <script>
+    // --- 1. PLUGIN STATE & CONFIG ---
+    
+    // ** THIS IS NOW A RELATIVE PATH - NO CHANGE NEEDED! **
+    const API_SERVER_URL = ''; 
+
+    let currentShipment = null; 
+    let currentConversation = null;
+    
+    const regexPatterns = {
+      shipmentID: /(T-\d{5,})/i, 
+      bolNumber: /(BOL[ -]?[A-Z0-9]{5,})/i,
+    };
+
+    // --- 2. DOM ELEMENTS ---
+    const el = {
+      contentArea: document.getElementById('content-area'),
+      messageContainer: document.getElementById('message-container'),
+      noShipment: document.getElementById('message-no-shipment'),
+      loading: document.getElementById('message-loading'),
+      error: document.getElementById('message-error'),
+      errorText: document.getElementById('error-text'),
+      searchInput: document.getElementById('search-input'),
+      searchButton: document.getElementById('search-button'),
+      recordIdDisplay: document.getElementById('record-id-display'),
+      recordIdLink: document.getElementById('record-id-link'),
+      tabs: document.querySelectorAll('.tab-link'),
+      panels: document.querySelectorAll('.tab-panel'),
+      
+      // Overview
+      customer: document.getElementById('data-customer'),
+      bol: document.getElementById('data-bol'),
+      origin: document.getElementById('data-origin'),
+      originDetails: document.getElementById('data-origin-details'),
+      destination: document.getElementById('data-destination'),
+      destinationDetails: document.getElementById('data-destination-details'),
+      currentLocation: document.getElementById('data-current-location'),
+      predictedEta: document.getElementById('data-predicted-eta'),
+      noteInput: document.getElementById('note-input'),
+      notePostButton: document.getElementById('note-post-button'),
+      notePostSuccess: document.getElementById('note-post-success'),
+
+      // Documents
+      documentsListTms: document.getElementById('documents-list-tms'),
+      documentsListFront: document.getElementById('documents-list-front'),
+      attachStatus: document.getElementById('attach-status'),
+
+      // Notes
+      notesTimeline: document.getElementById('notes-timeline'),
+    };
+    
+    // --- 3. HELPER FUNCTIONS ---
+    
+    function showContentBlock(blockToShow) {
+      el.messageContainer.classList.add('hidden');
+      el.contentArea.classList.add('hidden');
+      if (blockToShow === 'content') {
+        el.contentArea.classList.remove('hidden');
+      } else {
+        el.messageContainer.classList.remove('hidden');
+        el.noShipment.classList.add('hidden');
+        el.loading.classList.add('hidden');
+        el.error.classList.add('hidden');
+        if(blockToShow) blockToShow.classList.remove('hidden');
+      }
+    }
+
+    function formatDateTime(dateString) {
+      if (!dateString) return 'N/A';
+      try {
+        const date = new Date(dateString);
+        return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      } catch (e) { return 'N/A'; }
+    }
+    
+    function formatWindow(seconds) {
+      if (!seconds || seconds === 0) return '';
+      const hours = (seconds / 3600).toFixed(1);
+      return ` (${hours}hr window)`;
+    }
+
+    function formatAppointmentDetails(stop) {
+      if (!stop) return 'N/A';
+      const date = formatDateTime(stop.date);
+      const schedule = stop.scheduling || 'N/A';
+      const window = formatWindow(stop.window);
+      return `${date} - ${schedule}${window}`;
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+    
+    function getFileIcon(mimeType) {
+      const type = mimeType.toLowerCase();
+      if (type.includes('pdf')) {
+        return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
+      }
+      if (type.includes('image')) {
+        return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+      }
+      if (type.includes('csv')) {
+         return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
+      }
+      return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`;
+    }
+
+    function findId(text) {
+      if (!text) return null;
+      let match = text.match(regexPatterns.shipmentID);
+      if (match) return { id: match[1], type: 'shipmentID' };
+      
+      match = text.match(regexPatterns.bolNumber);
+      if (match) return { id: match[1], type: 'bolNumber' };
+
+      if (text.trim().length > 0) {
+        const type = text.toUpperCase().startsWith('BOL') ? 'bolNumber' : 'shipmentID';
+        return { id: text.trim(), type: type };
+      }
+      return null;
+    }
+
+    // --- 4. MAIN DATA & UI FUNCTIONS ---
+
+    async function getShipmentData(id, type) {
+      showContentBlock(el.loading);
+      currentShipment = null; 
+
+      try {
+        // Vercel routes '/api/shipment' to 'api/index.js'
+        const response = await fetch(`${API_SERVER_URL}/api/shipment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, type }),
+        });
+
+        if (response.status === 404) {
+          showContentBlock(el.error);
+          el.errorText.textContent = `Shipment with ID "${id}" was not found in Turvo.`;
+          return;
+        }
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        const data = await response.json();
+        currentShipment = data; 
+        updateUI(data);
+
+      } catch (error) {
+        console.error('Error fetching shipment data:', error);
+        showContentBlock(el.error);
+        el.errorText.textContent = 'Could not connect to the shipment server.';
+      }
+    }
+
+    function updateUI(data) {
+      el.recordIdDisplay.textContent = data.id;
+      el.recordIdLink.href = data.turvoUrl;
+      el.customer.textContent = data.customer;
+      el.bol.textContent = data.bolNumber;
+      el.origin.textContent = data.originLocation;
+      el.originDetails.textContent = formatAppointmentDetails(data.originPickup);
+      el.destination.textContent = data.destLocation;
+      el.destinationDetails.textContent = formatAppointmentDetails(data.destDelivery);
+      
+      const currentLoc = data.currentLocation;
+      el.currentLocation.textContent = `${currentLoc.city}, ${currentLoc.state} (as of ${formatDateTime(currentLoc.timestamp)})`;
+      el.predictedEta.textContent = formatDateTime(data.predictedEta);
+
+      getDocuments(data.internalId);
+      renderNotes(data.statusHistory);
+      
+      if (currentConversation) {
+        renderFrontAttachments(currentConversation.attachments);
+      }
+      
+      showContentBlock('content');
+    }
+    
+    async function getDocuments(shipmentId) {
+      el.documentsListTms.innerHTML = '<div class="text-sm text-gray-500">Loading documents...</div>';
+      try {
+        const response = await fetch(`${API_SERVER_URL}/api/shipment/${shipmentId}/documents`);
+        if (!response.ok) throw new Error('Failed to fetch documents');
+        
+        const data = await response.json();
+        if (data.documents && data.documents.length > 0) {
+          el.documentsListTms.innerHTML = '';
+          data.documents.forEach(doc => {
+            el.documentsListTms.innerHTML += `
+              <div class="flex items-center justify-between p-3 bg-white border rounded-md">
+                <div class="flex items-center space-x-2 truncate">
+                  ${getFileIcon(doc.documentType.value)}
+                  <div class="truncate">
+                    <a href="${currentShipment.turvoUrl}" target="_blank" class="font-medium text-blue-600 hover:underline truncate">${doc.documentName || 'Untitled Document'}</a>
+                    <div class="text-sm text-gray-500">${doc.documentType.value}</div>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        } else {
+          el.documentsListTms.innerHTML = '<div class="text-sm text-gray-500">No documents found in TMS.</div>';
+        }
+      } catch (e) {
+        el.documentsListTms.innerHTML = '<div class="text-sm text-red-600">Could not load documents.</div>';
+      }
+    }
+
+    function renderFrontAttachments(attachments) {
+      el.documentsListFront.innerHTML = '';
+      if (attachments && attachments.length > 0) {
+        attachments.forEach(file => {
+          el.documentsListFront.innerHTML += `
+            <div class="flex items-center justify-between p-3 bg-white border rounded-md">
+              <div class="flex items-center space-x-2 truncate">
+                ${getFileIcon(file.content_type)}
+                <div class="truncate">
+                  <div class="font-medium text-gray-800 truncate" title="${file.filename}">${file.filename}</div>
+                  <div class="text-sm text-gray-500">${formatBytes(file.size)}</div>
+                </div>
+              </div>
+              <button class="attach-btn flex-shrink-0 ml-2 px-3 py-1 bg-gray-200 text-gray-800 font-semibold rounded-full hover:bg-gray-300 text-sm"
+                      data-filename="${file.filename}"
+                      data-url="${file.url}"
+                      data-type="${file.content_type}">
+                Attach
+              </button>
+            </div>
+          `;
+        });
+      } else {
+        el.documentsListFront.innerHTML = '<div class="text-sm text-gray-500">No attachments in this conversation.</div>';
+      }
+    }
+
+    function renderNotes(history) {
+      el.notesTimeline.innerHTML = '';
+      if (history && history.length > 0) {
+        history.slice().reverse().forEach(item => {
+          const noteHtml = `
+            <div class="p-3 bg-white border rounded-md">
+              <div class="font-semibold">${item.code.value}</div>
+              <div class="text-sm text-gray-500">
+                ${formatDateTime(item.lastUpdatedOn)}
+                ${item.lastUpdatedBy ? `by ${item.lastUpdatedBy.name}` : ''}
+              </div>
+              ${item.notes ? `<p class="mt-1 text-gray-800">${item.notes}</p>` : ''}
+            </div>
+          `;
+          el.notesTimeline.innerHTML += noteHtml;
+        });
+      } else {
+        el.notesTimeline.innerHTML = '<p class="text-gray-500">No status history found.</p>';
+      }
+    }
+
+    // --- 5. WRITE-BACK FUNCTIONS ---
+
+    async function handlePostNote() {
+      const noteText = el.noteInput.value;
+      if (!noteText || !currentShipment) return;
+      
+      el.notePostButton.disabled = true;
+      el.notePostButton.textContent = 'Posting...';
+      el.notePostSuccess.classList.add('hidden');
+      
+      try {
+        const response = await fetch(`${API_SERVER_URL}/api/shipment/${currentShipment.internalId}/note`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            note: noteText,
+            statusKey: currentShipment.statusKey 
+          }),
+        });
+        
+        if (!response.ok) throw new Error('Server failed to post note.');
+        
+        el.noteInput.value = '';
+        el.notePostSuccess.classList.remove('hidden');
+        
+        const data = await response.json();
+        currentShipment.statusHistory = data.statusHistory; 
+        renderNotes(data.statusHistory);
+        
+      } catch (e) {
+        alert('Error posting note: ' + e.message);
+      } finally {
+        el.notePostButton.disabled = false;
+        el.notePostButton.textContent = 'Post Note';
+        setTimeout(() => el.notePostSuccess.classList.add('hidden'), 3000);
+      }
+    }
+
+    async function handleAttachFile(e) {
+      if (!e.target.classList.contains('attach-btn')) return;
+      if (!currentShipment) return;
+
+      const button = e.target;
+      const filename = button.dataset.filename;
+      const fileUrl = button.dataset.url;
+      const fileType = button.dataset.type;
+
+      button.disabled = true;
+      button.textContent = 'Attaching...';
+      el.attachStatus.textContent = '';
+      
+      try {
+        const response = await fetch(`${API_SERVER_URL}/api/shipment/${currentShipment.internalId}/documents/attach`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, fileUrl, fileType }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Server failed to attach file.');
+        }
+
+        el.attachStatus.textContent = `Successfully attached "${filename}"!`;
+        el.attachStatus.classList.add('text-green-600');
+        el.attachStatus.classList.remove('text-red-600');
+        button.textContent = 'Attached';
+        
+        getDocuments(currentShipment.internalId);
+
+      } catch (e) {
+        console.error(e);
+        el.attachStatus.textContent = `Error: ${e.message}`;
+        el.attachStatus.classList.add('text-red-600');
+        el.attachStatus.classList.remove('text-green-600');
+        button.disabled = false;
+        button.textContent = 'Attach';
+      }
+    }
+    
+    // --- 6. EVENT LISTENERS ---
+    el.searchButton.addEventListener('click', () => {
+      const match = findId(el.searchInput.value);
+      if (match) getShipmentData(match.id, match.type);
+      else {
+        showContentBlock(el.error);
+        el.errorText.textContent = 'Please enter a valid ID or BOL #.';
+      }
+    });
+
+    el.tabs.forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
+        el.tabs.forEach(t => t.classList.remove('active'));
+        el.panels.forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+    
+    el.notePostButton.addEventListener('click', handlePostNote);
+    el.documentsListFront.addEventListener('click', handleAttachFile);
+
+    // --- 7. FRONT SDK HOOKS ---
+    Front.boot = () => {};
+    Front.contextUpdates.subscribe(context => {
+      if (context.type === 'conversation') {
+        currentConversation = context.conversation; 
+        const match = findId(context.conversation.subject);
+        
+        if (match && !currentShipment) {
+          el.searchInput.value = match.id;
+          getShipmentData(match.id, match.type);
+        } else if (currentShipment) {
+          renderFrontAttachments(currentConversation.attachments);
+        } else {
+          showContentBlock(el.noShipment);
+          renderFrontAttachments(currentConversation.attachments);
+        }
+      }
+    });
+
+  </script>
+</body>
+</html>
