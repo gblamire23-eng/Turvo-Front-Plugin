@@ -5,11 +5,11 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'self' https://app.frontapp.com"
+          "value": "frame-ancestors 'self' https://app.frontapp.com;"
         },
         {
           "key": "X-Frame-Options",
-          "value": "ALLOW-FROM https://app.frontapp.com"
+          "value": ""
         }
       ]
     }
