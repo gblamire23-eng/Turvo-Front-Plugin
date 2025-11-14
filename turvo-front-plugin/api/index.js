@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json());
 
 // --- TURVO API DETAILS (Set as Environment Variables) ---
-// Switched to Sandbox URL for testing
+// Use Sandbox URL as default
 const TURVO_BASE_URL = process.env.TURVO_BASE_URL || 'https://my-sandbox-publicapi.turvo.com';
 const TURVO_CLIENT_ID = process.env.TURVO_CLIENT_ID;
 const TURVO_CLIENT_SECRET = process.env.TURVO_CLIENT_SECRET;
@@ -76,8 +76,9 @@ function parseShipmentData(details) {
     throw new Error('Invalid response structure from Turvo. "details" object missing.');
   }
 
-  const originStop = details.globalRoute?.[0];
-  const destStop = details.globalRoute?.[details.globalRoute.length - 1];
+  // Find origin and destination stops
+  const originStop = details.globalRoute?.find(r => r.stopType?.value?.toLowerCase() === 'pickup');
+  const destStop = details.globalRoute?.findLast(r => r.stopType?.value?.toLowerCase() === 'delivery');
 
   const formatAddress = (addr) => (addr ? `${addr.city || 'N/A'}, ${addr.state || 'N/A'}` : 'N/A');
   
@@ -99,26 +100,30 @@ function parseShipmentData(details) {
   }
 
   return {
-    internalId: details.id, 
-    id: details.customId || details.id, // Display the customId (e.g., 49873)
+    internalId: details.id, // We need this for other API calls
+    id: details.customId || details.id,
     turvoUrl: `https://app.turvo.com/shipments/${details.id}`,
     customer: details.customerOrder?.[0]?.customer?.name || 'N/A',
     bolNumber: bol,
     status: details.status?.description || 'N/A',
-    statusKey: details.status?.code?.key || null, 
+    statusKey: details.status?.code?.key || null, // For posting notes
     type: details.transportation?.mode?.value || 'N/A',
     etd: details.startDate?.date || null,
     eta: details.endDate?.date || null,
     carrier: details.carrierOrder?.[0]?.carrier?.name || 'N/A',
+    
     originLocation: formatAddress(originStop?.address),
     originPickup: getStopDetails(originStop),
+    
     destLocation: formatAddress(destStop?.address),
     destDelivery: getStopDetails(destStop),
+    
     currentLocation: {
       city: details.status?.location?.city || 'N/A',
       state: details.status?.location?.state || '',
       timestamp: details.status?.location?.currentDate || null,
     },
+    
     predictedEta: details.status?.location?.nextEtaCalVal || null,
     statusHistory: details.statusHistory || [],
   };
@@ -139,8 +144,6 @@ const getShipmentByTurvoId = async (id) => {
 
   if (response.status === 404) return null; // Not found
   if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('Turvo GetShipment error:', errorBody);
     throw new Error(`Turvo API error (ShipmentID): ${response.status}`);
   }
   const data = await response.json();
@@ -148,13 +151,12 @@ const getShipmentByTurvoId = async (id) => {
 };
 
 /**
- * Fetches a shipment from Turvo using a Custom ID (Load Number)
+ * Searches for a shipment and returns the full shipment data.
  */
-const getShipmentByCustomId = async (customId) => {
-  // Use the search endpoint with the customId parameter
-  const endpoint = `${TURVO_BASE_URL}/v1/shipments/list?customId[eq]=${customId}`;
+const searchForShipment = async (param, value) => {
+  const endpoint = `${TURVO_BASE_URL}/v1/shipments/list?${param}[eq]=${value}`;
   const token = await getAuthToken();
-  console.log(`Fetching from Turvo Search API (by customId): ${endpoint}`);
+  console.log(`Fetching from Turvo Search API: ${endpoint}`);
 
   const response = await fetch(endpoint, {
     method: 'GET',
@@ -162,47 +164,17 @@ const getShipmentByCustomId = async (customId) => {
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('Turvo Search (customId) error:', errorBody);
-    throw new Error(`Turvo API error (customId Search): ${response.status}`);
+    throw new Error(`Turvo API error (Search): ${response.status}`);
   }
 
   const searchResults = await response.json();
+  // Check if details and shipments array exist and have items
   const shipmentSummary = searchResults.details?.shipments?.[0] || null;
 
   if (!shipmentSummary) return null; // Not found
 
-  console.log(`Found summary for customId ${customId}. Fetching full details for ID: ${shipmentSummary.id}`);
-  // Now get the full details using the *internal* ID
-  return await getShipmentByTurvoId(shipmentSummary.id);
-};
-
-
-/**
- * Fetches a shipment from Turvo using a BOL Number
- */
-const getShipmentByBol = async (bol) => {
-  const endpoint = `${TURVO_BASE_URL}/v1/shipments/list?bolNumber[eq]=${bol}`;
-  const token = await getAuthToken();
-  console.log(`Fetching from Turvo Search API (by BOL): ${endpoint}`);
-
-  const response = await fetch(endpoint, {
-    method: 'GET',
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('Turvo Search (BOL) error:', errorBody);
-    throw new Error(`Turvo API error (BOL Search): ${response.status}`);
-  }
-
-  const searchResults = await response.json();
-  const shipmentSummary = searchResults.details?.shipments?.[0] || null;
-
-  if (!shipmentSummary) return null; // Not found
-
-  console.log(`Found summary for BOL ${bol}. Fetching full details for ID: ${shipmentSummary.id}`);
+  console.log(`Found summary for ${param} ${value}. Fetching full details for ID: ${shipmentSummary.id}`);
+  // Now get the full shipment details using the internal ID
   return await getShipmentByTurvoId(shipmentSummary.id);
 };
 
@@ -213,26 +185,25 @@ app.post('/api/shipment', async (req, res) => {
 
   if (!id || !type) return res.status(400).json({ error: 'Missing ID or type' });
   
-  // Clean the ID based on its type
-  if (type === 'loadNumber') id = id.replace(/\D/g, ''); // Remove non-digits
-  else if (type === 'bolNumber') id = id.trim();
+  id = id.trim();
 
   try {
     let shipmentData;
-    if (type === 'loadNumber') {
-      shipmentData = await getShipmentByCustomId(id);
+    if (type === 'shipmentID') {
+      // Use customId[eq] to search for the numeric load number
+      shipmentData = await searchForShipment('customId', id);
     } else if (type === 'bolNumber') {
-      shipmentData = await getShipmentByBol(id);
+      shipmentData = await searchForShipment('bolNumber', id);
     } else {
       return res.status(400).json({ error: 'Unknown search type' });
     }
 
     if (shipmentData) res.json(shipmentData);
-    else res.status(404).json({ error: 'Shipment not found' });
+    else res.status(404).json({ error: `Shipment with ID "${id}" was not found in Turvo.` });
     
   } catch (error) {
     console.error('Error in /api/shipment:', error.message);
-    res.status(500).json({ error: error.message || 'Error connecting to Turvo' });
+    res.status(500).json({ error: 'Error connecting to Turvo' });
   }
 });
 
@@ -240,26 +211,24 @@ app.post('/api/shipment', async (req, res) => {
 // --- ENDPOINT 2: GET DOCUMENT LIST ---
 app.get('/api/shipment/:id/documents', async (req, res) => {
   const { id } = req.params;
-  
-  if (!id || isNaN(parseInt(id))) {
-     return res.status(400).json({ error: 'Invalid Shipment ID' });
-  }
-
+  let token;
   try {
-    const token = await getAuthToken();
-    const context = encodeURIComponent(JSON.stringify({ id: parseInt(id), type: "SHIPMENT" }));
-    const endpoint = `${TURVO_BASE_URL}/v1/documents/list?context=${context}`;
-
-    console.log(`Fetching documents from: ${endpoint}`);
+    token = await getAuthToken();
+  } catch (e) {
+    console.error('Auth failed for documents:', e.message);
+    return res.status(500).json({ error: 'Authentication with Turvo failed.' });
+  }
   
+  // Using the context query from Turvo API docs
+  const context = encodeURIComponent(JSON.stringify({ id: parseInt(id), type: "SHIPMENT" }));
+  const endpoint = `${TURVO_BASE_URL}/v1/documents/list?context=${context}`;
+
+  console.log(`Fetching documents from: ${endpoint}`);
+  try {
     const response = await fetch(endpoint, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error('Turvo documents API error:', errorBody);
-        throw new Error('Turvo documents API error');
-    }
+    if (!response.ok) throw new Error('Turvo documents API error');
     const data = await response.json();
     res.json({ documents: data.details?.documents || [] });
   } catch (e) {
@@ -274,27 +243,30 @@ app.post('/api/shipment/:id/note', async (req, res) => {
   const { id } = req.params;
   const { note, statusKey } = req.body;
   
-  if (!id || isNaN(parseInt(id))) {
-     return res.status(400).json({ error: 'Invalid Shipment ID' });
-  }
   if (!note || !statusKey) {
     return res.status(400).json({ error: 'Missing note or statusKey' });
   }
   
+  let token;
   try {
-    const token = await getAuthToken();
-    const endpoint = `${TURVO_BASE_URL}/v1/shipments/status/${id}`;
-    
-    const payload = {
-      id: parseInt(id),
-      status: {
-        code: { key: statusKey }, // Update the *current* status
-        notes: note // But add our new note
-      }
-    };
+    token = await getAuthToken();
+  } catch (e) {
+    console.error('Auth failed for note:', e.message);
+    return res.status(500).json({ error: 'Authentication with Turvo failed.' });
+  }
+  
+  const endpoint = `${TURVO_BASE_URL}/v1/shipments/status/${id}`;
+  
+  const payload = {
+    id: parseInt(id),
+    status: {
+      code: { key: statusKey }, // Update the *current* status
+      notes: note // But add our new note
+    }
+  };
 
-    console.log(`Posting note to: ${endpoint}`);
-
+  console.log(`Posting note to: ${endpoint}`);
+  try {
     const response = await fetch(endpoint, {
       method: 'PUT',
       headers: { 
@@ -305,8 +277,7 @@ app.post('/api/shipment/:id/note', async (req, res) => {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      console.error('Turvo note update error:', errorBody);
+      console.error('Turvo note update error:', await response.text());
       throw new Error('Turvo API failed to post note.');
     }
     
@@ -326,46 +297,50 @@ app.post('/api/shipment/:id/documents/attach', async (req, res) => {
   const { id } = req.params;
   const { filename, fileUrl, fileType } = req.body;
 
-  if (!id || isNaN(parseInt(id))) {
-     return res.status(400).json({ error: 'Invalid Shipment ID' });
-  }
   if (!filename || !fileUrl) {
     return res.status(400).json({ error: 'Missing filename or fileUrl' });
   }
 
+  let token;
   try {
-    const token = await getAuthToken();
-    const endpoint = `${TURVO_BASE_URL}/v2/documents/upload-via-urls`; 
+    token = await getAuthToken();
+  } catch (e) {
+    console.error('Auth failed for attach:', e.message);
+    return res.status(500).json({ error: 'Authentication with Turvo failed.' });
+  }
+  
+  // This is the endpoint for adding a doc from a URL
+  const endpoint = `${TURVO_BASE_URL}/v2/documents/upload-via-urls`; 
 
-    // We use key 3009 ("Other") as a default.
-    let lookupKey = "3009";
-    let lookupName = "Other";
+  // We use key 3009 ("Other") as a default.
+  let lookupKey = "3009";
+  let lookupName = "Other";
 
-    if (fileType.includes('pdf')) {
-      lookupKey = "3005"; // Bill of lading (example)
-      lookupName = "Bill of lading";
-    } else if (fileType.includes('image')) {
-      lookupKey = "3010"; // Proof of delivery (example)
-      lookupName = "Proof of delivery";
+  if (fileType.includes('pdf')) {
+    lookupKey = "3005"; // Bill of lading (example)
+    lookupName = "Bill of lading";
+  } else if (fileType.includes('image')) {
+    lookupKey = "3010"; // Proof of delivery (example)
+    lookupName = "Proof of delivery";
+  }
+  
+  // This payload is based on the Turvo API docs
+  const payload = {
+    context: {
+      id: parseInt(id),
+      type: "SHIPMENT"
+    },
+    attributes: {
+      name: filename,
+      urls: [fileUrl], // Turvo API expects an array of URLs
+      lookupKey: lookupKey,
+      lookupName: lookupName,
+      create: true
     }
-    
-    // This payload is based on the Turvo API docs
-    const payload = {
-      context: {
-        id: parseInt(id),
-        type: "SHIPMENT"
-      },
-      attributes: {
-        name: filename,
-        urls: [fileUrl], // Turvo API expects an array of URLs
-        lookupKey: lookupKey,
-        lookupName: lookupName,
-        create: true
-      }
-    };
+  };
 
-    console.log(`Attaching file from URL: ${fileUrl}`);
-
+  console.log(`Attaching file from URL: ${fileUrl}`);
+  try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 
@@ -376,17 +351,10 @@ app.post('/api/shipment/:id/documents/attach', async (req, res) => {
     });
 
     if (!response.ok) {
-      let errorBody;
-      try {
-        errorBody = await response.json();
-        console.error('Turvo attach error (JSON):', errorBody);
-      } catch (e) {
-        errorBody = await response.text();
-        console.error('Turvo attach error (Text):', errorBody);
-      }
-
+      const errorBody = await response.json();
+      console.error('Turvo attach error:', errorBody);
       // Check for a common error
-      if (JSON.stringify(errorBody).includes("Could not download file")) {
+      if (errorBody?.details?.errorMessage?.includes("Could not download file")) {
         throw new Error("Turvo server could not access the Front attachment URL. This is likely a security permissions issue.");
       }
       throw new Error(errorBody?.details?.errorMessage || 'Turvo API failed to attach file.');
@@ -402,5 +370,11 @@ app.post('/api/shipment/:id/documents/attach', async (req, res) => {
 });
 
 
-// This is the Vercel export.
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`TMS plugin backend listening on port ${PORT}`);
+});
+
+// This is the Vercel serverless function handler
 module.exports = app;
