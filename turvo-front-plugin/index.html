@@ -6,8 +6,9 @@
   <title>Logistics Plugin</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    /* Using Inter font, loaded by most modern browsers */
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       overflow-y: auto;
       font-size: 14px;
     }
@@ -24,6 +25,13 @@
     .data-grid-full { @apply grid grid-cols-1 gap-y-3; }
     .data-key-full { @apply font-medium text-gray-500; }
     .data-value-full { @apply text-gray-900; }
+
+    /* Custom styles for file icons */
+    .file-icon { @apply h-6 w-6 flex-shrink-0; }
+    .file-icon-pdf { @apply text-red-600; }
+    .file-icon-img { @apply text-gray-600; }
+    .file-icon-csv { @apply text-green-600; }
+    .file-icon-other { @apply text-gray-500; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -144,18 +152,17 @@
   <script>
     // --- 1. PLUGIN STATE & CONFIG ---
     
-    // ** THIS IS NOW A RELATIVE PATH - NO CHANGE NEEDED! **
+    // This relative path works because we are hosting on Vercel
+    // with the 'api' folder.
     const API_SERVER_URL = ''; 
 
     let currentShipment = null; 
     let currentConversation = null;
     
-    // Updated Regex:
-    // loadNumber: Looks for 5 or more digits, NOT starting with "BOL"
-    // bolNumber: Looks for "BOL" followed by numbers/letters
+    // Updated regex to find 5+ digit numbers or BOL numbers
     const regexPatterns = {
-      loadNumber: /(?<!BOL[ -]?)\b(\d{5,})\b/i, 
-      bolNumber: /(BOL[ -]?[A-Z0-9]{5,})/i,
+      shipmentID: /(\d{5,})/i, // Looks for a 5+ digit number
+      bolNumber: /(BOL[ -]?[A-Z0-9]{5,})/i, // Looks for BOL-XXXXX
     };
 
     // --- 2. DOM ELEMENTS ---
@@ -245,35 +252,36 @@
     function getFileIcon(mimeType) {
       const type = mimeType.toLowerCase();
       if (type.includes('pdf')) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
+        return `<svg class="file-icon file-icon-pdf" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
       }
       if (type.includes('image')) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+        return `<svg class="file-icon file-icon-img" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
       }
       if (type.includes('csv')) {
-         return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
+         return `<svg class="file-icon file-icon-csv" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`;
       }
-      return `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`;
+      return `<svg class="file-icon file-icon-other" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`;
     }
 
     function findId(text) {
       if (!text) return null;
-      // Try BOL first, as it's more specific
+      // Prioritize BOL match
       let match = text.match(regexPatterns.bolNumber);
       if (match) return { id: match[1], type: 'bolNumber' };
       
-      // Try Load Number (5+ digits)
-      match = text.match(regexPatterns.loadNumber);
-      if (match) return { id: match[1], type: 'loadNumber' };
+      // Then check for shipment ID (5+ digits)
+      match = text.match(regexPatterns.shipmentID);
+      if (match) return { id: match[1], type: 'shipmentID' };
 
-      // Fallback for manual search
+      // Fallback for manual search box
       if (text.trim().length > 0) {
-        const value = text.trim().toUpperCase();
-        if (value.startsWith('BOL')) {
-          return { id: value, type: 'bolNumber' };
+        const upperText = text.toUpperCase().trim();
+        if (upperText.startsWith('BOL')) {
+          return { id: text.trim(), type: 'bolNumber' };
         }
-        if (/^\d{5,}$/.test(value)) {
-          return { id: value, type: 'loadNumber' };
+        // Default to shipmentID if it's just numbers
+        if (/^\d+$/.test(text.trim())) {
+          return { id: text.trim(), type: 'shipmentID' };
         }
       }
       return null;
@@ -284,6 +292,7 @@
     async function getShipmentData(id, type) {
       showContentBlock(el.loading);
       currentShipment = null; 
+      el.searchInput.value = id; // Update search box with what we're searching for
 
       try {
         // Vercel routes '/api/shipment' to 'api/index.js'
@@ -328,6 +337,15 @@
       el.currentLocation.textContent = `${currentLoc.city}, ${currentLoc.state} (as of ${formatDateTime(currentLoc.timestamp)})`;
       el.predictedEta.textContent = formatDateTime(data.predictedEta);
 
+      // Reset tabs to default
+      el.tabs.forEach(t => t.classList.remove('active'));
+      el.panels.forEach(p => p.classList.remove('active'));
+      const overviewTab = document.querySelector('.tab-link[data-tab="overview"]');
+      const overviewPanel = document.getElementById('panel-overview');
+      if(overviewTab) overviewTab.classList.add('active');
+      if(overviewPanel) overviewPanel.classList.add('active');
+      
+      // Fetch related data
       getDocuments(data.internalId);
       renderNotes(data.statusHistory);
       
@@ -351,10 +369,10 @@
             el.documentsListTms.innerHTML += `
               <div class="flex items-center justify-between p-3 bg-white border rounded-md">
                 <div class="flex items-center space-x-2 truncate">
-                  ${getFileIcon(doc.documentType.value)}
+                  ${getFileIcon(doc.documentType?.value || 'file')}
                   <div class="truncate">
                     <a href="${currentShipment.turvoUrl}" target="_blank" class="font-medium text-blue-600 hover:underline truncate">${doc.documentName || 'Untitled Document'}</a>
-                    <div class="text-sm text-gray-500">${doc.documentType.value}</div>
+                    <div class="text-sm text-gray-500">${doc.documentType?.value || 'File'}</div>
                   </div>
                 </div>
               </div>
@@ -371,7 +389,7 @@
     function renderFrontAttachments(attachments) {
       el.documentsListFront.innerHTML = '';
       if (attachments && attachments.length > 0) {
-        attachments.forEach(file => {
+        attachments.forEach((file, index) => {
           el.documentsListFront.innerHTML += `
             <div class="flex items-center justify-between p-3 bg-white border rounded-md">
               <div class="flex items-center space-x-2 truncate">
@@ -384,7 +402,8 @@
               <button class="attach-btn flex-shrink-0 ml-2 px-3 py-1 bg-gray-200 text-gray-800 font-semibold rounded-full hover:bg-gray-300 text-sm"
                       data-filename="${file.filename}"
                       data-url="${file.url}"
-                      data-type="${file.content_type}">
+                      data-type="${file.content_type}"
+                      data-button-id="attach-btn-${index}">
                 Attach
               </button>
             </div>
@@ -398,6 +417,7 @@
     function renderNotes(history) {
       el.notesTimeline.innerHTML = '';
       if (history && history.length > 0) {
+        // Show most recent first
         history.slice().reverse().forEach(item => {
           const noteHtml = `
             <div class="p-3 bg-white border rounded-md">
@@ -446,7 +466,8 @@
         renderNotes(data.statusHistory);
         
       } catch (e) {
-        alert('Error posting note: ' + e.message);
+        // Use Front's built-in modal for errors
+        Front.showError('Error', 'Could not post note to Turvo.', e.message);
       } finally {
         el.notePostButton.disabled = false;
         el.notePostButton.textContent = 'Post Note';
@@ -459,6 +480,7 @@
       if (!currentShipment) return;
 
       const button = e.target;
+      const buttonId = button.dataset.buttonId;
       const filename = button.dataset.filename;
       const fileUrl = button.dataset.url;
       const fileType = button.dataset.type;
@@ -484,6 +506,7 @@
         el.attachStatus.classList.remove('text-red-600');
         button.textContent = 'Attached';
         
+        // Refresh the 'From TMS' list
         getDocuments(currentShipment.internalId);
 
       } catch (e) {
@@ -491,16 +514,21 @@
         el.attachStatus.textContent = `Error: ${e.message}`;
         el.attachStatus.classList.add('text-red-600');
         el.attachStatus.classList.remove('text-green-600');
-        button.disabled = false;
-        button.textContent = 'Attach';
+        // Re-enable *only* this button
+        const failedButton = document.querySelector(`[data-button-id="${buttonId}"]`);
+        if (failedButton) {
+          failedButton.disabled = false;
+          failedButton.textContent = 'Attach';
+        }
       }
     }
     
     // --- 6. EVENT LISTENERS ---
     el.searchButton.addEventListener('click', () => {
       const match = findId(el.searchInput.value);
-      if (match) getShipmentData(match.id, match.type);
-      else {
+      if (match) {
+        getShipmentData(match.id, match.type);
+      } else {
         showContentBlock(el.error);
         el.errorText.textContent = 'Please enter a valid Load # or BOL #.';
       }
@@ -521,20 +549,25 @@
 
     // --- 7. FRONT SDK HOOKS ---
     Front.boot = () => {};
+    
     Front.contextUpdates.subscribe(context => {
+      currentShipment = null; // Clear shipment on new conversation
+      
       if (context.type === 'conversation') {
         currentConversation = context.conversation; 
         const match = findId(context.conversation.subject);
         
-        if (match && !currentShipment) {
-          el.searchInput.value = match.id;
+        if (match) {
           getShipmentData(match.id, match.type);
-        } else if (currentShipment) {
-          renderFrontAttachments(currentConversation.attachments);
         } else {
           showContentBlock(el.noShipment);
           renderFrontAttachments(currentConversation.attachments);
         }
+      } else {
+        // No conversation selected, reset to initial state
+        currentConversation = null;
+        showContentBlock(el.noShipment);
+        el.searchInput.value = '';
       }
     });
 
